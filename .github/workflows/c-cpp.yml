@@ -14,36 +14,49 @@ jobs:
     # 1️⃣ 코드 체크아웃
     - uses: actions/checkout@v4
 
-    # 2️⃣ 빌드 필수 패키지 설치
+    # 2️⃣ 필수 패키지 설치 (CMake + autotools + 컴파일러)
     - name: Install dependencies
-      run: sudo apt-get update && sudo apt-get install -y build-essential cmake
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake autoconf automake libtool pkg-config
 
-    # 3️⃣ 빌드
+    # 3️⃣ 빌드 자동 감지
     - name: Build
       run: |
         if [ -f CMakeLists.txt ]; then
+          echo "CMake project detected."
           mkdir -p build
           cd build
           cmake ..
           make
+        elif [ -f configure ]; then
+          echo "Autotools project detected."
+          chmod +x configure
+          ./configure
+          make
         elif [ -f Makefile ]; then
+          echo "Makefile project detected."
           make
         else
-          echo "No Makefile or CMakeLists.txt found!"
+          echo "No recognized build system found!"
           exit 1
         fi
 
-    # 4️⃣ 테스트
+    # 4️⃣ 테스트 실행
     - name: Run tests
       run: |
         if [ -f Makefile ]; then
-          make check || echo "No make check target, skipping."
+          if make -q check 2>/dev/null; then
+            make check
+          else
+            echo "No make check target, skipping."
+          fi
         fi
 
-    # 5️⃣ distcheck (선택적, Makefile이 autotools 기반일 때만)
+    # 5️⃣ distcheck 실행 (autotools 전용)
     - name: Make distcheck
       run: |
-        if command -v make >/dev/null 2>&1 && make -q distcheck 2>/dev/null; then
+        if [ -f Makefile ] && make -q distcheck 2>/dev/null; then
           make distcheck
         else
           echo "No distcheck target, skipping."
