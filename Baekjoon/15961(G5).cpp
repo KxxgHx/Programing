@@ -20,7 +20,6 @@ int main() {
         cin >> sushi[i];
     }
     
-    // Initialize first window
     for (int i = 0; i < k; i++) {
         if (sushi_cnt[sushi[i]] == 0) {
             typeOfSushi++;
@@ -28,30 +27,25 @@ int main() {
         sushi_cnt[sushi[i]]++;
     }
     
-    // Calculate initial result
     int current_result = typeOfSushi;
     if (sushi_cnt[c] == 0) {
         current_result++;
     }
     result = current_result;
     
-    // Sliding window
     for (int i = k; i < N + k; i++) {
-        // Remove the leftmost element
         int dup_sushi = sushi[(i - k) % N];
         sushi_cnt[dup_sushi]--;
         if (sushi_cnt[dup_sushi] == 0) {
             typeOfSushi--;
         }
         
-        // Add the new element
         int plus_sushi = sushi[i % N];
         if (sushi_cnt[plus_sushi] == 0) {
             typeOfSushi++;
         }
         sushi_cnt[plus_sushi]++;
         
-        // Calculate current result
         current_result = typeOfSushi;
         if (sushi_cnt[c] == 0) {
             current_result++;
