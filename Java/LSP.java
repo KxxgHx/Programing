@@ -19,11 +19,9 @@ class Rectangle {
 }
 
 class Square extends Rectangle {
-    @Override
     void setWidth(int w) {
         width = height = w;
     }
-    @Override
     void setHeight(int h) {
         width = height = h;
     }
