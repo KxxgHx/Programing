@@ -39,10 +39,6 @@ private:
     dnode* next_field;
 };
 
-// =============================================================================
-// FUNCTION PROTOTYPES
-// =============================================================================
-
 template <class Item>
 size_t list_length(const dnode<Item>* head_ptr);
 
