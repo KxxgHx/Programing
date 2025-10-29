@@ -8,20 +8,18 @@ private:
     using iterator = typename std::vector<int>::iterator;
     using const_iterator = typename std::vector<int>::const_iterator;
     std::vector<int> data;
-    
 
 public:
     Set();
     Set(std::initializer_list<int> init);
 
     void insert(int value);
-    bool contains(int value) const;
+    bool contains(int value);
     void erase(int value);
-    bool is_disjoint(const Set &other) const;
+    bool is_disjoint(Set &other) const;
     iterator begin();
     iterator end();
-    const_iterator find(const int& val) const;
-    const_iterator lower_bound_const(const_iterator first, const_iterator last, const int& value) const;
+    const_iterator find(const int& val);
     iterator lower_bound(iterator first, iterator last, const int& value) const;
 };
 
@@ -40,8 +38,8 @@ void Set::insert(int value) {
     }
 }
 
-bool Set::contains(int value) const {
-    return find(value) != data.end();
+bool Set::contains(int value) {
+    return find(value) != end();
 }
 
 void Set::erase(int value) {
@@ -58,35 +56,21 @@ Set::iterator Set::begin() {
 Set::iterator Set::end() {
     return data.end();
 }
-
-Set::const_iterator Set::find(const int& val) const {
-    auto it = lower_bound_const(data.begin(), data.end(), val);
-    if (it != data.end() && *it == val) {
-        return it;
-    }
-    return data.end();
-}
-
-bool Set::is_disjoint(const Set &other) const
-{
-    for (const auto& elem : data) {
-        if (other.contains(elem)) {
+bool Set::is_disjoint(Set& other) const {
+    for (int item : this->data) {
+        if (other.contains(item)) {
             return false;
         }
     }
     return true;
 }
 
-typename Set::const_iterator Set::lower_bound_const(const_iterator first, const_iterator last, const int& value) const {
-    while (first < last) {
-        const_iterator mid = first + (last - first) / 2;
-        if (*mid < value) {
-            first = mid + 1;
-        } else {
-            last = mid;
-        }
+Set::const_iterator Set::find(const int& val) {
+    auto it = lower_bound(data.begin(), data.end(), val);
+    if (it != data.end() && *it == val) {
+        return it;
     }
-    return first;
+    return data.end();
 }
 
 typename Set::iterator Set::lower_bound(iterator first, iterator last, const int& value) const {
@@ -103,7 +87,7 @@ typename Set::iterator Set::lower_bound(iterator first, iterator last, const int
 
 int main() {
     Set mySet = { 1, 2, 3, 4, 5 };
-
+    Set yourSet = {3, 12, 8, 9, 7};
     std::cout << "My set is ";
     for (auto elem : mySet) {
         std::cout << elem << " ";
@@ -112,7 +96,7 @@ int main() {
 
     mySet.insert(6);
     mySet.erase(3);
-
+    
     if (mySet.find(4) != mySet.end()) {
         std::cout << "4 is in the set." << std::endl;
     }
@@ -121,15 +105,19 @@ int main() {
     for (auto elem : mySet) {
         std::cout << elem << " ";
     }
-    std::cout << std::endl;
+    std::cout << "\n";
+    std::cout << "your set is ";
+    for (auto elem : yourSet) {
+        std::cout << elem << " ";
+    }
+    if(mySet.is_disjoint(yourSet))
+        std::cout << "\n"
+                  << "True";
+    else
+        std::cout << "\n"
+                  << "False";
 
-    // is_disjoint 테스트
-    Set set1 = {1, 2, 3};
-    Set set2 = {4, 5, 6};
-    Set set3 = {3, 4, 5};
-    
-    std::cout << "set1 and set2 are disjoint: " << set1.is_disjoint(set2) << std::endl;
-    std::cout << "set1 and set3 are disjoint: " << set1.is_disjoint(set3) << std::endl;
+    std::cout << std::endl;
 
     return 0;
 }
