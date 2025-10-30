@@ -2,13 +2,11 @@ package src.HW2;
 
 import java.util.Scanner;
 
-// Main.java (수정됨)
 public class Main {
     private static LibraryManager manager = new LibraryManager();
     private static Scanner scanner = new Scanner(System.in);
 
     public static void main(String[] args) {
-        // 초기 데이터 설정 (테스트 용이성을 위해 미리 몇 개 등록)
         setupInitialData();
         
         System.out.println("=========================================");
@@ -18,7 +16,7 @@ public class Main {
         boolean running = true;
         while (running) {
             printMenu();
-            System.out.print("➡️ 메뉴 선택 (1-6): ");
+            System.out.print(" 메뉴 선택 (1-6): ");
             String choice = scanner.nextLine();
 
             try {
@@ -53,9 +51,7 @@ public class Main {
         scanner.close();
     }
 
-    /**
-     * 초기 테스트 데이터 설정 메서드
-     */
+// 테스트 용이를 위한 초기 데이터
     private static void setupInitialData() {
         try {
             manager.addMember(new Member("M001", "강현서"));
@@ -64,13 +60,10 @@ public class Main {
             manager.addBook(new Book("B1002", "알고리즘 개론", "저자B"));
             manager.addBook(new Book("B1003", "데이터베이스 기초", "저자C"));
         } catch (LibraryException e) {
-            // 초기 데이터 설정 중복은 무시 (테스트 편의상)
+            // 초기 데이터 설정 중복 무시
         }
     }
 
-    /**
-     * 메인 메뉴 출력
-     */
     private static void printMenu() {
         System.out.println("\n----- 기능 목록 -----");
         System.out.println("1. 도서 등록");
@@ -82,9 +75,9 @@ public class Main {
         System.out.println("---------------------");
     }
 
-    /**
-     * 1. 도서 등록 기능 인터페이스
-     */
+    
+    //도서 등록 기능 인터페이스
+    
     private static void addBookInterface() {
         System.out.println("\n--- 도서 등록 ---");
         System.out.print("ISBN 입력: ");
@@ -101,9 +94,9 @@ public class Main {
         }
     }
 
-    /**
-     * 2. 회원 등록 기능 인터페이스
-     */
+    
+    //회원 등록 기능 인터페이스
+     
     private static void addMemberInterface() {
         System.out.println("\n--- 회원 등록 ---");
         System.out.print("회원 ID 입력: ");
@@ -118,9 +111,9 @@ public class Main {
         }
     }
 
-    /**
-     * 3. 도서 대출 기능 인터페이스
-     */
+    
+    //도서 대출 기능 인터페이스
+    
     private static void borrowBookInterface() {
         System.out.println("\n--- 도서 대출 ---");
         System.out.print("회원 ID 입력: ");
@@ -135,9 +128,9 @@ public class Main {
         }
     }
 
-    /**
-     * 4. 도서 반납 기능 인터페이스
-     */
+    
+    //도서 반납 기능 인터페이스
+    
     private static void returnBookInterface() {
         System.out.println("\n--- 도서 반납 ---");
         System.out.print("반납할 도서 ISBN 입력: ");

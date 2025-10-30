@@ -22,7 +22,7 @@ public class LibraryManager implements Loanable {
             throw new LibraryException("오류: 이미 존재하는 회원 ID입니다 - " + member.getMemberId());
         }
         members.put(member.getMemberId(), member);
-        System.out.println("✅ 회원 등록 성공: " + member.getName());
+        System.out.println("회원 등록 성공: " + member.getName());
     }
 
     @Override
@@ -33,7 +33,7 @@ public class LibraryManager implements Loanable {
         return members.get(memberId);
     }
 
-    // --- 도서 관리 ---
+    //도서 관리
 
     @Override
     public void addBook(Book book) throws LibraryException {
@@ -41,7 +41,7 @@ public class LibraryManager implements Loanable {
             throw new LibraryException("오류: 이미 존재하는 도서 ISBN입니다 - " + book.getIsbn());
         }
         books.put(book.getIsbn(), book);
-        System.out.println("✅ 도서 등록 성공: " + book.getTitle());
+        System.out.println("도서 등록 성공: " + book.getTitle());
     }
 
     @Override
@@ -52,7 +52,7 @@ public class LibraryManager implements Loanable {
         return books.get(isbn);
     }
 
-    // --- 대출 관리 ---
+    //대출 관리
 
     @Override
     public void borrowBook(String memberId, String isbn) throws LibraryException {
@@ -66,7 +66,7 @@ public class LibraryManager implements Loanable {
         // 대출 처리
         book.setAvailable(false);
         currentLoans.put(isbn, memberId);
-        System.out.println("🎉 대출 성공: " + member.getName() + "님이 '" + book.getTitle() + "'를 대출했습니다.");
+        System.out.println("대출 성공: " + member.getName() + "님이 '" + book.getTitle() + "'를 대출했습니다.");
     }
 
     @Override
@@ -80,7 +80,7 @@ public class LibraryManager implements Loanable {
         // 반납 처리
         book.setAvailable(true);
         currentLoans.remove(isbn);
-        System.out.println("↩️ 반납 성공: '" + book.getTitle() + "' 도서가 반납되었습니다.");
+        System.out.println("반납 성공: '" + book.getTitle() + "' 도서가 반납되었습니다.");
     }
 
     // 추가: 모든 도서 목록 출력 (테스트용)
