@@ -8,7 +8,7 @@ using namespace std;
 const int INF = 1e9;
 typedef pair<int, int> pp;
 
-vector<pp> graph[200005];
+vector<pp> graph[200001];
 int V, E;
 
 void dijkstra(int start, vector<int>& table)
