@@ -2,7 +2,7 @@
 #include <vector>
 using namespace std;
 
-int node [100001]; 
+int node[100001]; 
 vector<int> v[100001];
 int N;
 int parent, son;

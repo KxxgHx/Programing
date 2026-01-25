@@ -19,7 +19,7 @@ int dfs(int node)
     for (int i = 0; i < tree[node].size(); i++)
     {
         int temp = dfs(tree[node][i]);
-        if (temp = -1 && tree[node].size() == 1)
+        if (temp == -1 && tree[node].size() == 1)
             leaf++;
     }
     return 0;
