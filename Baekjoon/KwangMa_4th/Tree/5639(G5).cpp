@@ -4,10 +4,10 @@
 using namespace std;
 
 vector<int> tree;
+int num;
 
 void post_order(int start, int end)
 {
-    int idx = start + 1;
     if (start >= end)
         return;
     if(start == end - 1)
@@ -15,9 +15,10 @@ void post_order(int start, int end)
         cout << tree[start] << '\n';
         return;
     }
+    int idx = start + 1;
     while (idx < end)
     {
-        if (tree[idx] < tree[end])
+        if (tree[start] < tree[idx])
             break;
         idx++;
     }
@@ -34,12 +35,12 @@ int main()
     ios::sync_with_stdio(0);
     cin.tie(0);
     cout.tie(0);
-
-    int num;
+   
     while (cin >> num)
     {
         tree.push_back(num);
     }
+        
 
     post_order(0, tree.size());
 
