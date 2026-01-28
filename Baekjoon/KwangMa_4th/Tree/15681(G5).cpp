@@ -1,5 +1,6 @@
 ﻿#include <iostream>
 #include <vector>
+#include <algorithm>
 
 using namespace std;
 
@@ -10,7 +11,19 @@ vector<bool> visited;
 
 void dfs(int curNode, int parent)
 {
+    visited[curNode] = true;
+    for (int i = 0; i < tree[curNode].size();i++)
+    {
+        int next = tree[curNode][i];
+        if(visited[next])
+            continue;
 
+        dfs(next, curNode);
+    }
+    if (parent != -1)
+    {
+        dp[parent] += dp[curNode];
+    }
 }
 
 int main()
@@ -20,7 +33,8 @@ int main()
     cout.tie(0);
 
     cin >> N >> R >> Q;
-    fill_n(dp, dp + 100001, 1);
+    visited.resize(N + 1, false);
+    fill(dp, dp + 100001, 1);
 
     for (int i = 0; i < N - 1; i++)
     {
@@ -36,6 +50,8 @@ int main()
     {
         int U;
         cin >> U;
-        
+        cout << dp[U] << '\n';
     }
+
+    return 0;
 }
