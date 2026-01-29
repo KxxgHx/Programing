@@ -27,10 +27,15 @@ void dfs(int cnt, int total) {
 }
 
 int main() {
-	cin >> n >> k;
+    ios::sync_with_stdio(0);
+    cin.tie(0);
+    cout.tie(0);
+
+    cin >> n >> k;
 
 	for (int i = 0; i < n; i++) {
-		int c; cin >> c;
+		int c; 
+        cin >> c;
 		kit.push_back(c);
 	}
 
