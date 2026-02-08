@@ -4,29 +4,37 @@
 using namespace std;
 
 int N, M;
-vector<int> vec[2001];
+vector<int> vec[2000];
 vector<bool> visited;
 
 bool result = false;
 
 void dfs(int cur, int cnt)
 {
-    if(cnt == M)
+    if (result) return; 
+
+    if(cnt == 4)
     {
         result = true;
         return;
     }
-    visited[cur] = true;
-    for (int i = 0; i < vec[cnt].size(); i++)
-    {
-        int next_node = vec[cnt][i];
-        if(visited[next_node])
-            continue;
-        dfs(next_node, cnt + 1);
 
-        visited[next_node] = false;
+    visited[cur] = true;
+
+    
+    for (int i = 0; i < vec[cur].size(); i++)
+    {
+        int next_node = vec[cur][i];
+        
+        if(!visited[next_node])
+        {
+            dfs(next_node, cnt + 1);
+        }
     }
+    
+    visited[cur] = false; 
 }
+
 int main()
 {
     ios::sync_with_stdio(0);
@@ -35,7 +43,7 @@ int main()
 
     cin >> N >> M;
 
-    visited.resize(M + 1, false);
+    visited.resize(N, false);
 
     for (int i = 0; i < M; i++)
     {
@@ -47,11 +55,9 @@ int main()
 
     for (int i = 0; i < N; i++)
     {
-        if(visited[i] == false)
-        {
-            dfs(i, 0);
-            visited[i] = false;
-        }
+        if(result) break; 
+
+        dfs(i, 0);
     }
 
     if(result)
