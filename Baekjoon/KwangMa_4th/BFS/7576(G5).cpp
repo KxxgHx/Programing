@@ -73,5 +73,5 @@ int main()
         }
     }
 
-    cout << result - 1;
+    cout << result - 1; //처음부터 있는 것이 0일이기에 1 빼고 출력
 }

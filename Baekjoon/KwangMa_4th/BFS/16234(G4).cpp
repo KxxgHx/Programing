@@ -21,7 +21,7 @@ bool bfs(int x, int y)
 
     q.push({x, y});
     visited[x][y] = true;
-    country.push_back({x, y});
+    country.push_back({x,  y});
 
     int sum = A[x][y];
 
