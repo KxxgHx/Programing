@@ -1,0 +1,115 @@
+name: Code Check
+
+# 이 저장소는 알고리즘 풀이와 학교 과제 코드를 모아 둔 곳이라
+# CMake/Makefile 같은 빌드 시스템이 없음.
+# 따라서 "프로젝트 빌드" 대신 "소스 파일별 컴파일 검사"를 수행함.
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  # =========================================================== C / C++
+  cpp:
+    name: C++ 컴파일 검사
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Windows 전용 소스(winsock 등)를 검사하기 위한 크로스 컴파일러
+      - name: MinGW-w64 설치
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-mingw-w64-x86-64
+
+      - name: 컴파일러 버전 확인
+        run: |
+          g++ --version | head -1
+          x86_64-w64-mingw32-g++ --version | head -1
+
+      - name: 모든 .cpp 파일 검사
+        run: |
+          fail=0
+          linux_cnt=0
+          win_cnt=0
+
+          while IFS= read -r f; do
+            # winsock2.h, windows.h 등을 쓰는 파일은 리눅스 g++로는 검사 불가.
+            # MinGW 크로스 컴파일러로 대신 검사함.
+            if grep -qE '#include[[:space:]]*<(winsock2|windows|ws2tcpip|conio)\.h>' "$f"; then
+              win_cnt=$((win_cnt + 1))
+              echo "[Windows] $f"
+              # -D_WIN32_WINNT=0x0601 : InetPtonA/InetNtopA 는 Vista 이상에서만
+              # 선언되므로 대상 Windows 버전을 명시해야 함(미지정 시 미선언 에러)
+              if ! x86_64-w64-mingw32-g++ -fsyntax-only -std=c++17 -D_WIN32_WINNT=0x0601 "$f"; then
+                echo "::error file=$f::MinGW 컴파일 실패"
+                fail=$((fail + 1))
+              fi
+              continue
+            fi
+
+            linux_cnt=$((linux_cnt + 1))
+            if ! g++ -fsyntax-only -std=c++17 "$f"; then
+              echo "::error file=$f::컴파일 실패"
+              fail=$((fail + 1))
+            fi
+          done < <(find . -name '*.cpp' -not -path './.git/*' | sort)
+
+          echo "--------------------------------------------"
+          echo "Linux 검사: ${linux_cnt}개"
+          echo "Windows 검사: ${win_cnt}개"
+          echo "실패: ${fail}개"
+          [ "$fail" -eq 0 ]
+
+  # =============================================================== Java
+  java:
+    name: Java 컴파일 검사
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JDK 21 설치
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: 모든 .java 파일 검사
+        run: |
+          mkdir -p /tmp/javaout
+          fail=0
+          single_cnt=0
+
+          # package 선언이 없는 파일은 서로 독립이라 하나씩 검사
+          while IFS= read -r f; do
+            if grep -q '^package ' "$f"; then
+              continue
+            fi
+            single_cnt=$((single_cnt + 1))
+            if ! javac -nowarn -d /tmp/javaout "$f"; then
+              echo "::error file=$f::컴파일 실패"
+              fail=$((fail + 1))
+            fi
+          done < <(find . -name '*.java' -not -path './.git/*' | sort)
+
+          # package 선언이 있는 파일은 서로를 참조하므로 한 번에 묶어서 검사
+          pkg_files=$(grep -rl '^package ' --include='*.java' . | sort | tr '\n' ' ')
+          pkg_cnt=0
+          if [ -n "$pkg_files" ]; then
+            pkg_cnt=$(echo "$pkg_files" | wc -w)
+            echo "[package 구조 일괄 컴파일] $pkg_files"
+            if ! javac -nowarn -d /tmp/javaout $pkg_files; then
+              echo "::error::package 구조 파일 컴파일 실패"
+              fail=$((fail + 1))
+            fi
+          fi
+
+          echo "--------------------------------------------"
+          echo "개별 검사: ${single_cnt}개"
+          echo "package 일괄 검사: ${pkg_cnt}개"
+          echo "실패: ${fail}개"
+          [ "$fail" -eq 0 ]
