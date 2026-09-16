@@ -1,4 +1,4 @@
-// 컴퓨터네트워크 과제 - Socket 기반 1:1 채팅 프로그램
+// 컴퓨터네트워크 과제 - Socket 기반 1:1 채팅 + TCP/UDP 특성 시험 프로그램
 //
 // 지원 기능
 //   - TCP / UDP 양쪽 모두 구현
@@ -6,6 +6,7 @@
 //   - Port 입력 / 미입력(기본값 9000) 지원
 //   - 송신 스레드와 수신 스레드를 분리한 전이중(full-duplex) 채팅
 //   - 소켓이 실제로 통신 중임을 보여 주는 /info, /stats 명령
+//   - TCP/UDP 특성을 수치로 비교하는 시험 기능 (/flood, /report, /pause)
 //
 // 빌드: g++ -o socket.exe Socket.cpp -lws2_32
 // 실행: run.bat 실행, 또는 콘솔 두 개에서 각각 서버/클라이언트로 실행
@@ -13,6 +14,9 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <atomic>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <iostream>
 #include <mutex>
@@ -30,11 +34,20 @@ const unsigned short DEFAULT_PORT = 9000;
 const char* DEFAULT_CLIENT_IP = "127.0.0.1";  // 클라이언트가 IP 미입력 시 접속할 루프백 주소
 const int BUF_SIZE = 1024;
 
+// 수신 버퍼를 일부러 작게 잡음.
+// 기본값(수십~수백 KB)이면 루프백에서는 UDP도 거의 유실되지 않아 신뢰성 차이가
+// 드러나지 않음. TCP와 UDP에 같은 크기를 적용해 공정한 비교 조건을 만듦.
+// 같은 조건에서 TCP는 흐름 제어와 재전송으로 유실 0, UDP는 대량 유실이 발생함.
+const int TEST_RCVBUF = 8192;
+
 // ---------------------------------------------------------------------------
 // 애플리케이션 계층 프로토콜 (이 프로그램이 직접 정한 규칙)
 //
-//   MSG|닉네임|본문      일반 채팅 메시지
-//   BYE|닉네임|          퇴장 알림
+//   MSG|닉네임|본문       일반 채팅 메시지
+//   BYE|닉네임|           퇴장 알림
+//   BGN|닉네임|총개수     시험 시작 (수신측 카운터 초기화)
+//   SEQ|닉네임|순번       시험 데이터 (화면에 출력하지 않고 세기만 함)
+//   END|닉네임|총개수     시험 종료 (수신측이 결과 출력)
 //
 // 소켓은 "바이트를 옮기는 통로"일 뿐이라 어디까지가 한 메시지인지 알려주지 않음.
 // 그래서 위와 같은 형식을 애플리케이션이 직접 정해야 함.
@@ -48,6 +61,14 @@ atomic<long long> g_recvBytes(0);   // 통계: 받은 바이트
 atomic<long long> g_sentMsgs(0);    // 통계: 보낸 메시지 수
 atomic<long long> g_recvMsgs(0);    // 통계: 받은 메시지 수
 mutex g_coutMtx;                    // 두 스레드가 동시에 출력하는 것을 방지
+
+// ---- 시험용 카운터 ----
+atomic<long long> g_testTotal(0);   // 상대가 보냈다고 알려 준 총 개수
+atomic<long long> g_seqRecv(0);     // 실제로 받은 SEQ 개수
+atomic<long long> g_recvCalls(0);   // 데이터를 담아 온 recv/recvfrom 호출 횟수
+atomic<long long> g_msgParsed(0);   // 그 호출들에서 꺼낸 메시지 총 개수
+atomic<int> g_pauseSec(0);          // 수신을 잠시 멈출 초 (흐름 제어 관찰용)
+string g_proto = "?";               // 화면 표기용 프로토콜 이름
 
 // 수신 스레드와 입력 스레드가 동시에 cout을 쓰면 글자가 섞이므로 잠금 사용
 void safePrint(const string& s) {
@@ -77,6 +98,12 @@ string addrToString(const sockaddr_in& addr) {
     char buf[INET_ADDRSTRLEN];
     InetNtopA(AF_INET, (void*)&addr.sin_addr, buf, sizeof(buf));
     return string(buf) + ":" + to_string(ntohs(addr.sin_port));
+}
+
+// 시험 조건을 맞추기 위해 수신 버퍼 크기를 줄임
+void shrinkRecvBuffer(SOCKET sock) {
+    int rcvbuf = TEST_RCVBUF;
+    setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char*)&rcvbuf, sizeof(rcvbuf));
 }
 
 // --------------------------------------------------------------- 사용자 입력
@@ -188,23 +215,6 @@ void decode(const string& raw, string& type, string& nick, string& body) {
     body = raw.substr(p2 + 1);
 }
 
-// 받은 메시지 한 건을 화면에 출력하고 통계 갱신.
-// 상대가 나갔으면 false 반환
-bool handleMessage(const string& raw) {
-    string type, nick, body;
-    decode(raw, type, nick, body);
-
-    g_recvMsgs++;
-
-    if (type == "BYE") {
-        safePrint("\n*** [" + nowTime() + "] " + nick + " 님이 나갔습니다. ***\n"
-                  "엔터를 누르면 종료됩니다.\n");
-        return false;
-    }
-    safePrint("[" + nowTime() + "] " + nick + "> " + body + "\n");
-    return true;
-}
-
 // -------------------------------------------------------- 소켓 상태 출력(증명)
 
 // getsockname / getpeername으로 OS가 실제 할당한 주소 확인.
@@ -242,14 +252,138 @@ void printStats() {
     safePrint(s);
 }
 
+// ------------------------------------------------------------- 시험 결과 출력
+
+// 유실률과 "recv 호출당 메시지 수"를 계산해 출력.
+//   - 유실률          : 신뢰성 차이를 보여 줌 (TCP 0% vs UDP 대량)
+//   - 호출당 메시지 수 : 스트림/데이터그램 차이를 보여 줌
+//                       TCP는 여러 메시지가 한 번에 뭉쳐 오므로 1보다 큼
+//                       UDP는 경계가 보존되므로 항상 정확히 1
+void printTestReport() {
+    long long total = g_testTotal.load();
+    long long got = g_seqRecv.load();
+    long long lost = (total > got) ? (total - got) : 0;
+    long long calls = g_recvCalls.load();
+    long long parsed = g_msgParsed.load();
+
+    char lossPct[32] = "0.00";
+    if (total > 0) snprintf(lossPct, sizeof(lossPct), "%.2f", 100.0 * lost / total);
+
+    char perCall[32] = "0.00";
+    if (calls > 0) snprintf(perCall, sizeof(perCall), "%.2f", (double)parsed / calls);
+
+    string s = "\n=========== 시험 결과 (" + g_proto + ") ===========\n";
+    s += "  상대가 보낸 개수   : " + to_string(total) + "\n";
+    s += "  실제로 받은 개수   : " + to_string(got) + "\n";
+    s += "  유실               : " + to_string(lost) + " (" + lossPct + "%)\n";
+    s += "  --------------------------------------\n";
+    s += "  recv 호출 횟수     : " + to_string(calls) + "\n";
+    s += "  호출당 평균 메시지 : " + string(perCall) + " 개\n";
+    s += "  수신 버퍼 크기     : " + to_string(TEST_RCVBUF) + " 바이트\n";
+    s += "==========================================\n";
+    safePrint(s);
+}
+
+// 받은 메시지 한 건을 처리. 상대가 나갔으면 false 반환
+bool handleMessage(const string& raw) {
+    string type, nick, body;
+    decode(raw, type, nick, body);
+
+    g_recvMsgs++;
+    g_msgParsed++;
+
+    if (type == "BYE") {
+        safePrint("\n*** [" + nowTime() + "] " + nick + " 님이 나갔습니다. ***\n"
+                  "엔터를 누르면 종료됩니다.\n");
+        return false;
+    }
+    if (type == "BGN") {
+        // 새 시험이 시작되므로 카운터를 0으로 되돌림
+        g_testTotal = atoll(body.c_str());
+        g_seqRecv = 0;
+        g_recvCalls = 0;
+        g_msgParsed = 0;
+        safePrint("\n[시험] " + nick + " 님이 " + body + "개 전송을 시작했습니다...\n");
+        return true;
+    }
+    if (type == "SEQ") {
+        // 시험 데이터는 화면에 찍지 않고 세기만 함 (출력이 병목이 되면 안 되므로)
+        g_seqRecv++;
+        return true;
+    }
+    if (type == "END") {
+        g_testTotal = atoll(body.c_str());
+        printTestReport();
+        return true;
+    }
+
+    safePrint("[" + nowTime() + "] " + nick + "> " + body + "\n");
+    return true;
+}
+
 void printHelp() {
     safePrint("\n--- 명령어 ---\n"
-              "  /info   현재 소켓의 실제 주소 정보 확인\n"
-              "  /stats  주고받은 메시지/바이트 통계 확인\n"
-              "  /help   이 도움말\n"
-              "  /exit   채팅 종료\n"
+              "  /info        현재 소켓의 실제 주소 정보 확인\n"
+              "  /stats       주고받은 메시지/바이트 통계 확인\n"
+              "  /flood N     시험용 메시지 N개 연속 전송 (예: /flood 10000)\n"
+              "  /report      마지막 시험 결과 다시 출력\n"
+              "  /pause N     수신을 N초간 멈춤 (TCP 흐름 제어 관찰용)\n"
+              "  /help        이 도움말\n"
+              "  /exit        채팅 종료\n"
               "그 외 입력은 모두 상대에게 전송됩니다.\n"
               "--------------\n");
+}
+
+// 수신 스레드가 매번 확인. /pause 로 지정된 시간만큼 수신을 멈춤.
+// 수신을 멈추면 TCP는 버퍼가 차면서 송신측 send()가 블로킹됨(흐름 제어).
+// UDP는 그런 장치가 없어 송신측이 계속 보내고 그만큼 버려짐.
+void applyPauseIfRequested() {
+    int p = g_pauseSec.exchange(0);
+    if (p > 0) {
+        safePrint("[시험] 수신을 " + to_string(p) + "초간 멈춥니다 (흐름 제어 관찰)\n");
+        this_thread::sleep_for(chrono::seconds(p));
+        safePrint("[시험] 수신 재개\n");
+    }
+}
+
+// 순번을 붙인 메시지를 n개 연속 전송.
+// sendOne 이 실제 전송을 담당하므로 TCP/UDP 양쪽에서 같은 코드를 사용함
+template <typename SendFn>
+void runFlood(const string& nick, long long n, SendFn sendOne) {
+    safePrint("[시험] " + to_string(n) + "개 연속 전송 시작...\n");
+
+    // 수신측 카운터를 초기화시킴. 버스트 전이라 이 메시지는 유실될 가능성이 낮음
+    sendOne(encode("BGN", nick, to_string(n)));
+    this_thread::sleep_for(chrono::milliseconds(100));
+
+    auto t0 = chrono::steady_clock::now();
+    long long ok = 0;
+    for (long long i = 1; i <= n; i++) {
+        if (!sendOne(encode("SEQ", nick, to_string(i)))) break;
+        ok++;
+    }
+    auto ms = chrono::duration_cast<chrono::milliseconds>(
+                  chrono::steady_clock::now() - t0).count();
+
+    // 버스트가 끝나고 수신측 버퍼가 비워질 시간을 준 뒤 종료를 알림
+    this_thread::sleep_for(chrono::milliseconds(500));
+    sendOne(encode("END", nick, to_string(ok)));
+
+    safePrint("[시험] 전송 완료: " + to_string(ok) + "개, " +
+              to_string(ms) + " ms 소요\n"
+              "[시험] 결과는 받는 쪽 화면에 출력됩니다.\n");
+}
+
+// 입력한 명령에서 숫자 인자를 꺼냄. 없거나 잘못되면 기본값 반환
+long long parseArg(const string& line, long long defaultValue) {
+    size_t sp = line.find(' ');
+    if (sp == string::npos) return defaultValue;
+    try {
+        long long v = stoll(line.substr(sp + 1));
+        return (v > 0) ? v : defaultValue;
+    } catch (...) {
+        return defaultValue;
+    }
 }
 
 // =============================================================== TCP 채팅
@@ -265,16 +399,19 @@ bool sendAllTcp(SOCKET sock, const string& data) {
         left -= n;
     }
     g_sentBytes += (long long)data.size();
+    g_sentMsgs++;
     return true;
 }
 
-// 수신 전담 스레드. 상대가 보낸 메시지를 계속 받아서 출력.
+// 수신 전담 스레드. 상대가 보낸 메시지를 계속 받아서 처리.
 // 이 스레드가 따로 있어서 내가 입력하는 중에도 상대 메시지 수신 가능
 void tcpRecvLoop(SOCKET sock) {
     char buf[BUF_SIZE];
     string stream;  // TCP는 메시지 경계가 없어 개행이 나올 때까지 모아야 함
 
     while (g_running) {
+        applyPauseIfRequested();
+
         int len = recv(sock, buf, BUF_SIZE, 0);
 
         if (len == 0) {  // 상대가 정상적으로 연결을 끊음
@@ -289,6 +426,7 @@ void tcpRecvLoop(SOCKET sock) {
         }
 
         g_recvBytes += len;
+        g_recvCalls++;   // 이 호출에서 몇 개의 메시지가 나오는지가 스트림의 증거
         stream.append(buf, len);
 
         // 버퍼에 쌓인 데이터에서 완성된 메시지(개행 단위)를 모두 꺼냄
@@ -307,6 +445,7 @@ void tcpRecvLoop(SOCKET sock) {
 
 // 연결 성립 후의 공통 채팅 루프. 서버와 클라이언트가 동일하게 사용
 void tcpChat(SOCKET sock, const string& nick) {
+    g_proto = "TCP";
     printSocketInfo(sock, "TCP");
     printHelp();
     safePrint("\n채팅을 시작합니다. 메시지를 입력하세요.\n\n");
@@ -321,19 +460,31 @@ void tcpChat(SOCKET sock, const string& nick) {
 
         if (line == "/exit") {
             sendAllTcp(sock, encode("BYE", nick, "") + "\n");
-            g_sentMsgs++;
             safePrint("채팅을 종료합니다.\n");
             break;
         }
         if (line == "/info")  { printSocketInfo(sock, "TCP"); continue; }
         if (line == "/stats") { printStats(); continue; }
+        if (line == "/report") { printTestReport(); continue; }
         if (line == "/help")  { printHelp(); continue; }
+        if (line.rfind("/pause", 0) == 0) {
+            g_pauseSec = (int)parseArg(line, 5);
+            safePrint("[시험] 다음 수신부터 " + to_string(g_pauseSec.load()) +
+                      "초간 멈춥니다.\n");
+            continue;
+        }
+        if (line.rfind("/flood", 0) == 0) {
+            long long n = parseArg(line, 10000);
+            runFlood(nick, n, [&](const string& s) {
+                return sendAllTcp(sock, s + "\n");
+            });
+            continue;
+        }
 
         if (!sendAllTcp(sock, encode("MSG", nick, line) + "\n")) {
             safePrint("*** 전송 실패. 연결이 끊어졌습니다. ***\n");
             break;
         }
-        g_sentMsgs++;
     }
 
     g_running = false;
@@ -373,6 +524,7 @@ void runTcpServer() {
     cout << "[TCP 서버] 접속됨: " << addrToString(clientAddr) << "\n";
     closesocket(listenSock);  // 1:1 채팅이라 더 이상 새 연결을 받지 않음
 
+    shrinkRecvBuffer(clientSock);  // UDP와 같은 조건으로 맞춤
     tcpChat(clientSock, nick);
 }
 
@@ -391,6 +543,7 @@ void runTcpClient() {
         die("connect() 실패 - 서버가 실행 중인지, IP와 포트가 맞는지 확인하세요");
 
     cout << "[TCP 클라이언트] 연결 성공\n";
+    shrinkRecvBuffer(sock);
     tcpChat(sock, nick);
 }
 
@@ -412,6 +565,8 @@ void udpRecvLoop(SOCKET sock, UdpPeer* peer) {
     int fromLen;
 
     while (g_running) {
+        applyPauseIfRequested();
+
         fromLen = sizeof(from);
         int len = recvfrom(sock, buf, BUF_SIZE - 1, 0, (sockaddr*)&from, &fromLen);
 
@@ -423,6 +578,7 @@ void udpRecvLoop(SOCKET sock, UdpPeer* peer) {
         }
 
         g_recvBytes += len;
+        g_recvCalls++;   // UDP는 이 값이 메시지 수와 항상 1:1로 일치함
         buf[len] = '\0';
 
         // 상대 주소를 아직 몰랐다면 여기서 알게 됨 (서버 쪽 경로)
@@ -467,6 +623,7 @@ bool udpSend(SOCKET sock, UdpPeer* peer, const string& data) {
 
 // UDP 채팅 공통 루프
 void udpChat(SOCKET sock, UdpPeer* peer, const string& nick) {
+    g_proto = "UDP";
     printSocketInfo(sock, "UDP");
     printHelp();
     safePrint("\n채팅을 시작합니다. 메시지를 입력하세요.\n\n");
@@ -486,7 +643,21 @@ void udpChat(SOCKET sock, UdpPeer* peer, const string& nick) {
         }
         if (line == "/info")  { printSocketInfo(sock, "UDP"); continue; }
         if (line == "/stats") { printStats(); continue; }
+        if (line == "/report") { printTestReport(); continue; }
         if (line == "/help")  { printHelp(); continue; }
+        if (line.rfind("/pause", 0) == 0) {
+            g_pauseSec = (int)parseArg(line, 5);
+            safePrint("[시험] 다음 수신부터 " + to_string(g_pauseSec.load()) +
+                      "초간 멈춥니다.\n");
+            continue;
+        }
+        if (line.rfind("/flood", 0) == 0) {
+            long long n = parseArg(line, 10000);
+            runFlood(nick, n, [&](const string& s) {
+                return udpSend(sock, peer, s);
+            });
+            continue;
+        }
 
         if (!udpSend(sock, peer, encode("MSG", nick, line))) {
             safePrint("*** 전송 실패 (코드: " + to_string(WSAGetLastError()) + ") ***\n");
@@ -512,6 +683,7 @@ void runUdpServer() {
 
     int opt = 1;
     setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (char*)&opt, sizeof(opt));
+    shrinkRecvBuffer(sock);  // TCP와 같은 조건으로 맞춤
 
     if (::bind(sock, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR)
         die("bind() 실패 - 포트가 이미 사용 중일 수 있습니다");
@@ -545,6 +717,8 @@ void runUdpClient() {
     localAddr.sin_port = htons(0);
     if (::bind(sock, (sockaddr*)&localAddr, sizeof(localAddr)) == SOCKET_ERROR)
         die("bind() 실패 - 클라이언트 임시 포트 할당 실패");
+
+    shrinkRecvBuffer(sock);
 
     cout << "\n[UDP 클라이언트] 전송 대상: " << addrToString(serverAddr) << "\n";
 
